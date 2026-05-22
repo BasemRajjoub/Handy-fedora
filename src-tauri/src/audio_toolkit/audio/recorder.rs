@@ -94,6 +94,9 @@ impl AudioRecorder {
                 let sample_rate = config.sample_rate().0;
                 let channels = config.channels() as usize;
 
+                assert!(sample_rate > 0, "device reported sample_rate=0");
+                assert!(channels >= 1 && channels <= 32, "unexpected channel count={channels}");
+
                 tracing::info!(
                     "Using device: {:?}\nSample rate: {}\nChannels: {}\nFormat: {:?}",
                     thread_device.name(),
@@ -232,6 +235,7 @@ impl AudioRecorder {
         T: Sample + SizedSample + Send + 'static,
         f32: cpal::FromSample<T>,
     {
+        assert!(channels >= 1, "build_stream called with channels=0");
         let mut output_buffer = Vec::new();
         let mut eos_sent = false;
 

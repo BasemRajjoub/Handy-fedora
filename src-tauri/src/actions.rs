@@ -545,6 +545,7 @@ impl ShortcutAction for TranscribeAction {
 
                     // Transcribe concurrently with WAV save
                     let transcription_time = Instant::now();
+                    debug_assert!(!samples.is_empty(), "samples must be non-empty before transcribe");
                     let transcription_result = tm.transcribe(samples);
 
                     // Await WAV save and verify

@@ -384,6 +384,7 @@ impl AudioRecordingManager {
     /* ---------- recording --------------------------------------------------- */
 
     pub fn try_start_recording(&self, binding_id: &str) -> Result<(), String> {
+        assert!(!binding_id.is_empty(), "binding_id must not be empty");
         let mut state = utils::lock_or_recover(&self.state, "state");
 
         if let RecordingState::Idle = *state {

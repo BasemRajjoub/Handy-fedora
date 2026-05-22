@@ -942,6 +942,12 @@ impl ModelManager {
         let Some(expected) = expected_sha256 else {
             return Ok(());
         };
+        assert!(
+            expected.len() == 64,
+            "SHA256 for model '{}' has wrong length {} (expected 64 hex chars)",
+            model_id,
+            expected.len()
+        );
         match Self::compute_sha256(path) {
             Ok(actual) if actual == expected => {
                 info!("SHA256 verified for model {}", model_id);

@@ -458,6 +458,12 @@ impl TranscriptionManager {
             return Ok(String::new());
         }
 
+        debug_assert!(
+            audio.iter().all(|s| s.is_finite()),
+            "audio buffer contains NaN/Inf before inference (len={})",
+            audio.len()
+        );
+
         // Check if model is loaded, if not try to load it
         {
             // If the model is loading, wait for it to complete.
