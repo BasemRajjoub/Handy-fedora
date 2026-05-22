@@ -1,7 +1,7 @@
 use crate::settings::SoundTheme;
 use crate::settings::{self, AppSettings};
 use cpal::traits::{DeviceTrait, HostTrait};
-use log::{debug, error, warn};
+use tracing::{debug, error, warn};
 use rodio::OutputStreamBuilder;
 use std::fs::File;
 use std::io::BufReader;

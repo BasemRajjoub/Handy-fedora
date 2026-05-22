@@ -3,7 +3,7 @@ use crate::managers::model::ModelManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings;
 use crate::tray_i18n::get_tray_translations;
-use log::{error, info, warn};
+use tracing::{error, info, warn};
 use std::sync::Arc;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};

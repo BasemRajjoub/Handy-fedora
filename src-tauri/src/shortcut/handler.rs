@@ -3,7 +3,7 @@
 //! This module contains the common logic for handling shortcut events,
 //! used by both the Tauri and handy-keys implementations.
 
-use log::warn;
+use tracing::warn;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 

@@ -4,7 +4,7 @@ use crate::settings::OverlayPosition;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 #[cfg(not(target_os = "macos"))]
-use log::debug;
+use tracing::debug;
 
 #[cfg(not(target_os = "macos"))]
 use tauri::WebviewWindowBuilder;
@@ -313,7 +313,7 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
                 let _ = panel.hide();
             }
             Err(e) => {
-                log::error!("Failed to create recording overlay panel: {}", e);
+                tracing::error!("Failed to create recording overlay panel: {}", e);
             }
         }
     }

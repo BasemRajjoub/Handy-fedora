@@ -2,7 +2,7 @@ use crate::audio_feedback;
 use crate::audio_toolkit::audio::{list_input_devices, list_output_devices};
 use crate::managers::audio::{AudioRecordingManager, MicrophoneMode};
 use crate::settings::{get_settings, write_settings};
-use log::warn;
+use tracing::warn;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::sync::Arc;

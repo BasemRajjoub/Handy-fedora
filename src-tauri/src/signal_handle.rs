@@ -1,7 +1,5 @@
 use crate::TranscriptionCoordinator;
-#[cfg(unix)]
-use log::debug;
-use log::warn;
+use tracing::{debug, warn};
 use tauri::{AppHandle, Manager};
 
 #[cfg(unix)]

@@ -26,7 +26,7 @@ pub fn init() {
             // Migration: v0.8.0 created an empty marker file. If we find an
             // empty/invalid marker alongside an existing Data/ dir, this is a
             // real portable install — upgrade the marker in place.
-            eprintln!("[portable] upgrading legacy empty marker to magic string");
+            tracing::warn!("[portable] upgrading legacy empty marker to magic string");
             let _ = std::fs::write(&marker_path, "Handy Portable Mode");
             true
         } else {
@@ -37,7 +37,7 @@ pub fn init() {
             if !data_dir.exists() {
                 std::fs::create_dir_all(&data_dir).ok()?;
             }
-            eprintln!("[portable] data dir: {}", data_dir.display());
+            tracing::info!("[portable] data dir: {}", data_dir.display());
             Some(data_dir)
         } else {
             None

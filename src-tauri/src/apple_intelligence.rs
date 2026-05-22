@@ -79,6 +79,6 @@ mod tests {
     #[test]
     fn test_availability() {
         let available = check_apple_intelligence_availability();
-        println!("Apple Intelligence available: {}", available);
+        tracing::info!("Apple Intelligence available: {}", available);
     }
 }

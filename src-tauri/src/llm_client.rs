@@ -1,5 +1,5 @@
 use crate::settings::PostProcessProvider;
-use log::debug;
+use tracing::debug;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, REFERER, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

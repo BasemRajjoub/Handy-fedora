@@ -28,7 +28,7 @@
 //! via Tauri's event system.
 
 use handy_keys::{Hotkey, HotkeyId, HotkeyManager, HotkeyState, KeyboardListener};
-use log::{debug, error, info};
+use tracing::{debug, error, info};
 use serde::Serialize;
 use specta::Type;
 use std::collections::HashMap;

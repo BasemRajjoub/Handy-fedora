@@ -1,4 +1,4 @@
-use log::{debug, warn};
+use tracing::{debug, warn};
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
@@ -65,14 +65,16 @@ impl<'de> Deserialize<'de> for LogLevel {
     }
 }
 
-impl From<LogLevel> for tauri_plugin_log::LogLevel {
+// Maps LogLevel to the u8 stored in FILE_LOG_LEVEL atomic.
+// Values: 0=OFF, 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG, 5=TRACE
+impl From<LogLevel> for u8 {
     fn from(level: LogLevel) -> Self {
         match level {
-            LogLevel::Trace => tauri_plugin_log::LogLevel::Trace,
-            LogLevel::Debug => tauri_plugin_log::LogLevel::Debug,
-            LogLevel::Info => tauri_plugin_log::LogLevel::Info,
-            LogLevel::Warn => tauri_plugin_log::LogLevel::Warn,
-            LogLevel::Error => tauri_plugin_log::LogLevel::Error,
+            LogLevel::Error => 1,
+            LogLevel::Warn => 2,
+            LogLevel::Info => 3,
+            LogLevel::Debug => 4,
+            LogLevel::Trace => 5,
         }
     }
 }
@@ -865,7 +867,10 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
 
                 if updated {
                     debug!("Settings updated with new bindings");
-                    store.set("settings", serde_json::to_value(&settings).unwrap());
+                    match serde_json::to_value(&settings) {
+                        Ok(v) => { store.set("settings", v); }
+                        Err(e) => tracing::error!("Failed to serialize settings: {e}"),
+                    }
                 }
 
                 settings
@@ -874,18 +879,27 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
                 warn!("Failed to parse settings: {}", e);
                 // Fall back to default settings if parsing fails
                 let default_settings = get_default_settings();
-                store.set("settings", serde_json::to_value(&default_settings).unwrap());
+                match serde_json::to_value(&default_settings) {
+                    Ok(v) => { store.set("settings", v); }
+                    Err(e) => tracing::error!("Failed to serialize default settings: {e}"),
+                }
                 default_settings
             }
         }
     } else {
         let default_settings = get_default_settings();
-        store.set("settings", serde_json::to_value(&default_settings).unwrap());
+        match serde_json::to_value(&default_settings) {
+            Ok(v) => { store.set("settings", v); }
+            Err(e) => tracing::error!("Failed to serialize default settings: {e}"),
+        }
         default_settings
     };
 
     if ensure_post_process_defaults(&mut settings) {
-        store.set("settings", serde_json::to_value(&settings).unwrap());
+        match serde_json::to_value(&settings) {
+            Ok(v) => { store.set("settings", v); }
+            Err(e) => tracing::error!("Failed to serialize settings: {e}"),
+        }
     }
 
     settings
@@ -899,17 +913,26 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
     let mut settings = if let Some(settings_value) = store.get("settings") {
         serde_json::from_value::<AppSettings>(settings_value).unwrap_or_else(|_| {
             let default_settings = get_default_settings();
-            store.set("settings", serde_json::to_value(&default_settings).unwrap());
+            match serde_json::to_value(&default_settings) {
+                Ok(v) => { store.set("settings", v); }
+                Err(e) => tracing::error!("Failed to serialize default settings: {e}"),
+            }
             default_settings
         })
     } else {
         let default_settings = get_default_settings();
-        store.set("settings", serde_json::to_value(&default_settings).unwrap());
+        match serde_json::to_value(&default_settings) {
+            Ok(v) => { store.set("settings", v); }
+            Err(e) => tracing::error!("Failed to serialize default settings: {e}"),
+        }
         default_settings
     };
 
     if ensure_post_process_defaults(&mut settings) {
-        store.set("settings", serde_json::to_value(&settings).unwrap());
+        match serde_json::to_value(&settings) {
+            Ok(v) => { store.set("settings", v); }
+            Err(e) => tracing::error!("Failed to serialize settings: {e}"),
+        }
     }
 
     settings
@@ -920,7 +943,10 @@ pub fn write_settings(app: &AppHandle, settings: AppSettings) {
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
 
-    store.set("settings", serde_json::to_value(&settings).unwrap());
+    match serde_json::to_value(&settings) {
+        Ok(v) => { store.set("settings", v); }
+        Err(e) => tracing::error!("Failed to serialize settings: {e}"),
+    }
 }
 
 pub fn get_bindings(app: &AppHandle) -> HashMap<String, ShortcutBinding> {
@@ -932,7 +958,9 @@ pub fn get_bindings(app: &AppHandle) -> HashMap<String, ShortcutBinding> {
 pub fn get_stored_binding(app: &AppHandle, id: &str) -> ShortcutBinding {
     let bindings = get_bindings(app);
 
-    let binding = bindings.get(id).unwrap().clone();
+    let binding = bindings.get(id)
+        .unwrap_or_else(|| panic!("Binding '{id}' not found — caller must pass valid binding id"))
+        .clone();
 
     binding
 }

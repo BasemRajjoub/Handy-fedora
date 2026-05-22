@@ -80,7 +80,7 @@ mod tests {
         let result = is_laptop();
         assert!(result.is_ok());
         if let Ok(is_laptop) = result {
-            println!("Is laptop: {}", is_laptop);
+            tracing::debug!("Is laptop: {}", is_laptop);
         }
     }
 }

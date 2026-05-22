@@ -53,13 +53,9 @@ pub fn get_log_dir_path(app: AppHandle) -> Result<String, String> {
 #[specta::specta]
 #[tauri::command]
 pub fn set_log_level(app: AppHandle, level: LogLevel) -> Result<(), String> {
-    let tauri_log_level: tauri_plugin_log::LogLevel = level.into();
-    let log_level: log::Level = tauri_log_level.into();
-    // Update the file log level atomic so the filter picks up the new level
-    crate::FILE_LOG_LEVEL.store(
-        log_level.to_level_filter() as u8,
-        std::sync::atomic::Ordering::Relaxed,
-    );
+    // Update the file log level atomic so the filter picks up the new level immediately.
+    // Mapping: 0=OFF, 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG, 5=TRACE
+    crate::FILE_LOG_LEVEL.store(u8::from(level), std::sync::atomic::Ordering::Relaxed);
 
     let mut settings = get_settings(&app);
     settings.log_level = level;
@@ -136,7 +132,7 @@ pub fn initialize_enigo(app: AppHandle) -> Result<(), String> {
 
     // Check if already initialized
     if app.try_state::<EnigoState>().is_some() {
-        log::debug!("Enigo already initialized");
+        tracing::debug!("Enigo already initialized");
         return Ok(());
     }
 
@@ -144,17 +140,17 @@ pub fn initialize_enigo(app: AppHandle) -> Result<(), String> {
     match EnigoState::new() {
         Ok(enigo_state) => {
             app.manage(enigo_state);
-            log::info!("Enigo initialized successfully after permission grant");
+            tracing::info!("Enigo initialized successfully after permission grant");
             Ok(())
         }
         Err(e) => {
             if cfg!(target_os = "macos") {
-                log::warn!(
+                tracing::warn!(
                     "Failed to initialize Enigo: {} (accessibility permissions may not be granted)",
                     e
                 );
             } else {
-                log::warn!("Failed to initialize Enigo: {}", e);
+                tracing::warn!("Failed to initialize Enigo: {}", e);
             }
             Err(format!("Failed to initialize input system: {}", e))
         }
@@ -172,7 +168,7 @@ pub struct ShortcutsInitialized;
 pub fn initialize_shortcuts(app: AppHandle) -> Result<(), String> {
     // Check if already initialized
     if app.try_state::<ShortcutsInitialized>().is_some() {
-        log::debug!("Shortcuts already initialized");
+        tracing::debug!("Shortcuts already initialized");
         return Ok(());
     }
 
@@ -182,6 +178,6 @@ pub fn initialize_shortcuts(app: AppHandle) -> Result<(), String> {
     // Mark as initialized
     app.manage(ShortcutsInitialized);
 
-    log::info!("Shortcuts initialized successfully");
+    tracing::info!("Shortcuts initialized successfully");
     Ok(())
 }

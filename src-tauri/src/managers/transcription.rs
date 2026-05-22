@@ -5,7 +5,7 @@ use crate::settings::{
     get_settings, ModelUnloadTimeout, OrtAcceleratorSetting, WhisperAcceleratorSetting,
 };
 use anyhow::Result;
-use log::{debug, error, info, warn};
+use tracing::{debug, error, info, warn};
 use serde::Serialize;
 use specta::Type;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -56,7 +56,7 @@ pub struct LoadingGuard {
 
 impl Drop for LoadingGuard {
     fn drop(&mut self) {
-        let mut is_loading = self.is_loading.lock().unwrap();
+        let mut is_loading = crate::utils::lock_or_recover(&self.is_loading, "is_loading");
         *is_loading = false;
         self.loading_condvar.notify_all();
     }
@@ -157,7 +157,7 @@ impl TranscriptionManager {
                 }
                 debug!("Idle watcher thread shutting down gracefully");
             });
-            *manager.watcher_handle.lock().unwrap() = Some(handle);
+            *crate::utils::lock_or_recover(&manager.watcher_handle, "watcher_handle") = Some(handle);
         }
 
         Ok(manager)
@@ -181,7 +181,7 @@ impl TranscriptionManager {
     /// clear the flag and wake waiters. Returns `None` if a load is already in
     /// progress.
     pub fn try_start_loading(&self) -> Option<LoadingGuard> {
-        let mut is_loading = self.is_loading.lock().unwrap();
+        let mut is_loading = crate::utils::lock_or_recover(&self.is_loading, "is_loading");
         if *is_loading {
             return None;
         }
@@ -202,7 +202,7 @@ impl TranscriptionManager {
             *engine = None;
         }
         {
-            let mut current_model = self.current_model_id.lock().unwrap();
+            let mut current_model = crate::utils::lock_or_recover(&self.current_model_id, "current_model_id");
             *current_model = None;
         }
 
@@ -385,7 +385,7 @@ impl TranscriptionManager {
             *engine = Some(loaded_engine);
         }
         {
-            let mut current_model = self.current_model_id.lock().unwrap();
+            let mut current_model = crate::utils::lock_or_recover(&self.current_model_id, "current_model_id");
             *current_model = Some(model_id.to_string());
         }
 
@@ -414,7 +414,7 @@ impl TranscriptionManager {
 
     /// Kicks off the model loading in a background thread if it's not already loaded
     pub fn initiate_model_load(&self) {
-        let mut is_loading = self.is_loading.lock().unwrap();
+        let mut is_loading = crate::utils::lock_or_recover(&self.is_loading, "is_loading");
         if *is_loading || self.is_model_loaded() {
             return;
         }
@@ -426,14 +426,14 @@ impl TranscriptionManager {
             if let Err(e) = self_clone.load_model(&settings.selected_model) {
                 error!("Failed to load model: {}", e);
             }
-            let mut is_loading = self_clone.is_loading.lock().unwrap();
+            let mut is_loading = crate::utils::lock_or_recover(&self_clone.is_loading, "is_loading");
             *is_loading = false;
             self_clone.loading_condvar.notify_all();
         });
     }
 
     pub fn get_current_model(&self) -> Option<String> {
-        let current_model = self.current_model_id.lock().unwrap();
+        let current_model = crate::utils::lock_or_recover(&self.current_model_id, "current_model_id");
         current_model.clone()
     }
 
@@ -461,7 +461,7 @@ impl TranscriptionManager {
         // Check if model is loaded, if not try to load it
         {
             // If the model is loading, wait for it to complete.
-            let mut is_loading = self.is_loading.lock().unwrap();
+            let mut is_loading = crate::utils::lock_or_recover(&self.is_loading, "is_loading");
             while *is_loading {
                 is_loading = self.loading_condvar.wait(is_loading).unwrap();
             }
@@ -843,7 +843,7 @@ impl Drop for TranscriptionManager {
         self.shutdown_signal.store(true, Ordering::Relaxed);
 
         // Wait for the thread to finish gracefully
-        if let Some(handle) = self.watcher_handle.lock().unwrap().take() {
+        if let Some(handle) = crate::utils::lock_or_recover(&self.watcher_handle, "watcher_handle").take() {
             if let Err(e) = handle.join() {
                 warn!("Failed to join idle watcher thread: {:?}", e);
             } else {

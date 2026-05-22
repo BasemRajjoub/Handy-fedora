@@ -2,9 +2,18 @@ use crate::managers::audio::AudioRecordingManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::shortcut;
 use crate::TranscriptionCoordinator;
-use log::info;
-use std::sync::Arc;
+use tracing::info;
+use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::{AppHandle, Manager};
+
+/// Lock a mutex, recovering from poison by logging a warning and taking the inner value.
+/// Poison means a thread panicked while holding the lock — the data is still usable.
+pub fn lock_or_recover<'a, T>(mu: &'a Mutex<T>, label: &'static str) -> MutexGuard<'a, T> {
+    mu.lock().unwrap_or_else(|poisoned| {
+        tracing::warn!(mutex = label, "Mutex poisoned — recovering guard. Data may be inconsistent.");
+        poisoned.into_inner()
+    })
+}
 
 // Re-export all utility modules for easy access
 // pub use crate::audio_feedback::*;

@@ -25,7 +25,6 @@ pub use cli::CliArgs;
 use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::{collect_commands, collect_events, Builder};
 
-use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
 use managers::history::HistoryManager;
 use managers::model::ModelManager;
@@ -37,75 +36,84 @@ use signal_hook::iterator::Signals;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use tauri::image::Image;
+use tracing_subscriber::{filter::FilterFn, fmt, layer::SubscriberExt, Layer, util::SubscriberInitExt, EnvFilter};
 pub use transcription_coordinator::TranscriptionCoordinator;
 
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
-use tauri_plugin_log::{Builder as LogBuilder, RotationStrategy, Target, TargetKind};
 
 use crate::settings::get_settings;
 
-// Global atomic to store the file log level filter
-// We use u8 to store the log::LevelFilter as a number
-pub static FILE_LOG_LEVEL: AtomicU8 = AtomicU8::new(log::LevelFilter::Debug as u8);
+// Global atomic for the file log level. 0=OFF,1=ERROR,2=WARN,3=INFO,4=DEBUG,5=TRACE.
+// Written by set_log_level command; read on every log call by the file layer filter.
+pub static FILE_LOG_LEVEL: AtomicU8 = AtomicU8::new(4); // DEBUG default
 
-fn level_filter_from_u8(value: u8) -> log::LevelFilter {
+fn level_from_u8(value: u8) -> Option<tracing::Level> {
     match value {
-        0 => log::LevelFilter::Off,
-        1 => log::LevelFilter::Error,
-        2 => log::LevelFilter::Warn,
-        3 => log::LevelFilter::Info,
-        4 => log::LevelFilter::Debug,
-        5 => log::LevelFilter::Trace,
-        _ => log::LevelFilter::Trace,
+        0 => None,
+        1 => Some(tracing::Level::ERROR),
+        2 => Some(tracing::Level::WARN),
+        3 => Some(tracing::Level::INFO),
+        4 => Some(tracing::Level::DEBUG),
+        5 => Some(tracing::Level::TRACE),
+        _ => Some(tracing::Level::TRACE),
     }
 }
 
-fn build_console_filter() -> env_filter::Filter {
-    let mut builder = EnvFilterBuilder::new();
+fn setup_tracing(log_dir: std::path::PathBuf) {
+    // Forward `log` crate records from third-party deps (cpal, reqwest, etc.) into tracing.
+    tracing_log::LogTracer::init().ok();
 
-    match std::env::var("RUST_LOG") {
-        Ok(spec) if !spec.trim().is_empty() => {
-            if let Err(err) = builder.try_parse(&spec) {
-                log::warn!(
-                    "Ignoring invalid RUST_LOG value '{}': {}. Falling back to info-level console logging",
-                    spec,
-                    err
-                );
-                builder.filter_level(log::LevelFilter::Info);
+    // Console layer: respects HANDY_LOG env var, falls back to info.
+    let console_filter = EnvFilter::try_from_env("HANDY_LOG")
+        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let console_layer = fmt::layer().with_target(true).with_filter(console_filter);
+
+    // File layer: non-blocking writes, level gated by FILE_LOG_LEVEL atomic.
+    std::fs::create_dir_all(&log_dir).ok();
+    let file_appender = tracing_appender::rolling::never(&log_dir, "handy.log");
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+    // Leak the guard so the background writer thread lives for the process lifetime.
+    Box::leak(Box::new(guard));
+    let file_layer = fmt::layer()
+        .with_ansi(false)
+        .with_writer(non_blocking)
+        .with_filter(FilterFn::new(|meta| {
+            match level_from_u8(FILE_LOG_LEVEL.load(Ordering::Relaxed)) {
+                None => false,
+                Some(max) => *meta.level() <= max,
             }
-        }
-        _ => {
-            builder.filter_level(log::LevelFilter::Info);
-        }
-    }
+        }));
 
-    builder.build()
+    tracing_subscriber::registry()
+        .with(console_layer)
+        .with(file_layer)
+        .init();
 }
 
 fn show_main_window(app: &AppHandle) {
     if let Some(main_window) = app.get_webview_window("main") {
         if let Err(e) = main_window.unminimize() {
-            log::error!("Failed to unminimize webview window: {}", e);
+            tracing::error!("Failed to unminimize webview window: {}", e);
         }
         if let Err(e) = main_window.show() {
-            log::error!("Failed to show webview window: {}", e);
+            tracing::error!("Failed to show webview window: {}", e);
         }
         if let Err(e) = main_window.set_focus() {
-            log::error!("Failed to focus webview window: {}", e);
+            tracing::error!("Failed to focus webview window: {}", e);
         }
         #[cfg(target_os = "macos")]
         {
             if let Err(e) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
-                log::error!("Failed to set activation policy to Regular: {}", e);
+                tracing::error!("Failed to set activation policy to Regular: {}", e);
             }
         }
         return;
     }
 
     let webview_labels = app.webview_windows().keys().cloned().collect::<Vec<_>>();
-    log::error!(
+    tracing::error!(
         "Main window not found. Webview labels: {:?}",
         webview_labels
     );
@@ -127,7 +135,7 @@ fn should_force_show_permissions_window(app: &AppHandle) -> bool {
 
         let status = commands::audio::get_windows_microphone_permission_status();
         if status.supported && status.overall_access == commands::audio::PermissionAccess::Denied {
-            log::info!(
+            tracing::info!(
                 "Windows microphone permissions are denied; forcing main window visible for onboarding"
             );
             return true;
@@ -170,9 +178,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // after permissions are confirmed (on macOS) or after onboarding completes.
     // This matches the pattern used for Enigo initialization.
 
+    // SIGUSR1/SIGUSR2 are POSIX-standard signal numbers — Signals::new() only fails
+    // for invalid signal numbers, which these are not.
     #[cfg(unix)]
-    let signals = Signals::new(&[SIGUSR1, SIGUSR2]).unwrap();
-    // Set up signal handlers for toggling transcription
+    let signals = Signals::new(&[SIGUSR1, SIGUSR2])
+        .expect("SIGUSR1/SIGUSR2 are valid signal numbers; registration must not fail");
     #[cfg(unix)]
     signal_handle::setup_signal_handler(app_handle.clone(), signals);
 
@@ -221,12 +231,12 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             "unload_model" => {
                 let transcription_manager = app.state::<Arc<TranscriptionManager>>();
                 if !transcription_manager.is_model_loaded() {
-                    log::warn!("No model is currently loaded.");
+                    tracing::warn!("No model is currently loaded.");
                     return;
                 }
                 match transcription_manager.unload_model() {
-                    Ok(()) => log::info!("Model unloaded via tray."),
-                    Err(e) => log::error!("Failed to unload model via tray: {}", e),
+                    Ok(()) => tracing::info!("Model unloaded via tray."),
+                    Err(e) => tracing::error!("Failed to unload model via tray: {}", e),
                 }
             }
             "cancel" => {
@@ -248,10 +258,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 std::thread::spawn(move || {
                     match commands::models::switch_active_model(&app_clone, &model_id) {
                         Ok(()) => {
-                            log::info!("Model switched to {} via tray.", model_id);
+                            tracing::info!("Model switched to {} via tray.", model_id);
                         }
                         Err(e) => {
-                            log::error!("Failed to switch model via tray: {}", e);
+                            tracing::error!("Failed to switch model via tray: {}", e);
                         }
                     }
                     tray::update_tray_menu(&app_clone, &tray::TrayIconState::Idle, None);
@@ -318,9 +328,12 @@ pub fn run(cli_args: CliArgs) {
     // Detect portable mode before anything else
     portable::init();
 
-    // Parse console logging directives from RUST_LOG, falling back to info-level logging
-    // when the variable is unset
-    let console_filter = build_console_filter();
+    let log_dir = if let Some(data_dir) = portable::data_dir() {
+        data_dir.join("logs")
+    } else {
+        std::env::temp_dir().join("handy-logs")
+    };
+    setup_tracing(log_dir);
 
     let specta_builder = Builder::<tauri::Wry>::new()
         .commands(collect_commands![
@@ -442,37 +455,7 @@ pub fn run(cli_args: CliArgs) {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .device_event_filter(tauri::DeviceEventFilter::Always)
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(
-            LogBuilder::new()
-                .level(log::LevelFilter::Trace) // Set to most verbose level globally
-                .max_file_size(500_000)
-                .rotation_strategy(RotationStrategy::KeepOne)
-                .clear_targets()
-                .targets([
-                    // Console output respects RUST_LOG environment variable
-                    Target::new(TargetKind::Stdout).filter({
-                        let console_filter = console_filter.clone();
-                        move |metadata| console_filter.enabled(metadata)
-                    }),
-                    // File logs respect the user's settings (stored in FILE_LOG_LEVEL atomic)
-                    Target::new(if let Some(data_dir) = portable::data_dir() {
-                        TargetKind::Folder {
-                            path: data_dir.join("logs"),
-                            file_name: Some("handy".into()),
-                        }
-                    } else {
-                        TargetKind::LogDir {
-                            file_name: Some("handy".into()),
-                        }
-                    })
-                    .filter(|metadata| {
-                        let file_level = FILE_LOG_LEVEL.load(Ordering::Relaxed);
-                        metadata.level() <= level_filter_from_u8(file_level)
-                    }),
-                ])
-                .build(),
-        );
+        .plugin(tauri_plugin_dialog::init());
 
     #[cfg(target_os = "macos")]
     {
@@ -533,10 +516,8 @@ pub fn run(cli_args: CliArgs) {
                 settings.log_level = settings::LogLevel::Trace;
             }
 
-            let tauri_log_level: tauri_plugin_log::LogLevel = settings.log_level.into();
-            let file_log_level: log::Level = tauri_log_level.into();
-            // Store the file log level in the atomic for the filter to use
-            FILE_LOG_LEVEL.store(file_log_level.to_level_filter() as u8, Ordering::Relaxed);
+            // Initialise the file log level from the persisted setting.
+            FILE_LOG_LEVEL.store(u8::from(settings.log_level), Ordering::Relaxed);
             let app_handle = app.handle().clone();
             app.manage(TranscriptionCoordinator::new(app_handle.clone()));
 
@@ -589,14 +570,14 @@ pub fn run(cli_args: CliArgs) {
                             .app_handle()
                             .set_activation_policy(tauri::ActivationPolicy::Accessory);
                         if let Err(e) = res {
-                            log::error!("Failed to set activation policy: {}", e);
+                            tracing::error!("Failed to set activation policy: {}", e);
                         }
                     }
                     // No tray: keep the dock icon visible so the user can reopen
                 }
             }
             tauri::WindowEvent::ThemeChanged(theme) => {
-                log::info!("Theme changed to: {:?}", theme);
+                tracing::info!("Theme changed to: {:?}", theme);
                 // Update tray icon to match new theme, maintaining idle state
                 utils::change_tray_icon(&window.app_handle(), utils::TrayIconState::Idle);
             }

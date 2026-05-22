@@ -13,7 +13,7 @@ use crate::utils::{
 };
 use crate::TranscriptionCoordinator;
 use ferrous_opencc::{config::BuiltinConfig, OpenCC};
-use log::{debug, error, warn};
+use tracing::{debug, error, warn};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -678,7 +678,7 @@ struct TestAction;
 
 impl ShortcutAction for TestAction {
     fn start(&self, app: &AppHandle, binding_id: &str, shortcut_str: &str) {
-        log::info!(
+        tracing::info!(
             "Shortcut ID '{}': Started - {} (App: {})", // Changed "Pressed" to "Started" for consistency
             binding_id,
             shortcut_str,
@@ -687,7 +687,7 @@ impl ShortcutAction for TestAction {
     }
 
     fn stop(&self, app: &AppHandle, binding_id: &str, shortcut_str: &str) {
-        log::info!(
+        tracing::info!(
             "Shortcut ID '{}': Stopped - {} (App: {})", // Changed "Released" to "Stopped" for consistency
             binding_id,
             shortcut_str,

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use hound::{WavReader, WavSpec, WavWriter};
-use log::debug;
+use tracing::debug;
 use std::path::Path;
 
 /// Read a WAV file and return normalised f32 samples.

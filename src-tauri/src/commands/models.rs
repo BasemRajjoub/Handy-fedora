@@ -112,7 +112,7 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
             .supported_languages
             .contains(&settings.selected_language)
     {
-        log::info!(
+        tracing::info!(
             "Resetting language from '{}' to 'auto' (not supported by {})",
             settings.selected_language,
             model_id
@@ -136,7 +136,7 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
                 error: None,
             },
         );
-        log::info!(
+        tracing::info!(
             "Model selection changed to {} (not loading — unload set to Immediately).",
             model_id
         );

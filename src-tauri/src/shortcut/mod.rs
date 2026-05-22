@@ -13,7 +13,7 @@ mod handler;
 pub mod handy_keys;
 mod tauri_impl;
 
-use log::{error, info, warn};
+use tracing::{error, info, warn};
 use serde::Serialize;
 use specta::Type;
 use tauri::{AppHandle, Emitter, Manager};
@@ -1104,7 +1104,7 @@ fn apply_and_reload_accelerator(app: &AppHandle, s: settings::AppSettings) {
     let tm = app.state::<std::sync::Arc<crate::managers::transcription::TranscriptionManager>>();
     if tm.is_model_loaded() {
         if let Err(e) = tm.unload_model() {
-            log::warn!("Failed to unload model after accelerator change: {e}");
+            tracing::warn!("Failed to unload model after accelerator change: {e}");
         }
     }
 }

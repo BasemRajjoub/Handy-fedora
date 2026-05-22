@@ -94,7 +94,7 @@ impl AudioRecorder {
                 let sample_rate = config.sample_rate().0;
                 let channels = config.channels() as usize;
 
-                log::info!(
+                tracing::info!(
                     "Using device: {:?}\nSample rate: {}\nChannels: {}\nFormat: {:?}",
                     thread_device.name(),
                     sample_rate,
@@ -163,7 +163,7 @@ impl AudioRecorder {
                     drop(stream);
                 }
                 Err(error_message) => {
-                    log::error!("{error_message}");
+                    tracing::error!("{error_message}");
                     let _ = init_tx.send(Err(error_message));
                 }
             }
@@ -267,14 +267,14 @@ impl AudioRecorder {
                 .send(AudioChunk::Samples(output_buffer.clone()))
                 .is_err()
             {
-                log::error!("Failed to send samples");
+                tracing::error!("Failed to send samples");
             }
         };
 
         device.build_input_stream(
             &config.clone().into(),
             stream_cb,
-            |err| log::error!("Stream error: {}", err),
+            |err| tracing::error!("Stream error: {}", err),
             None,
         )
     }
@@ -293,7 +293,7 @@ impl AudioRecorder {
         let supported_configs = match device.supported_input_configs() {
             Ok(configs) => configs,
             Err(e) => {
-                log::warn!("Could not enumerate input configs ({e}), using device default");
+                tracing::warn!("Could not enumerate input configs ({e}), using device default");
                 return Ok(default_config);
             }
         };
@@ -327,7 +327,7 @@ impl AudioRecorder {
         }
 
         // Fall back to device default if no config matched (exotic/virtual devices)
-        log::warn!(
+        tracing::warn!(
             "No supported config matched device default rate {:?}, using default config",
             target_rate
         );
@@ -431,7 +431,7 @@ fn run_consumer(
         }
 
         if let Some(vad_arc) = vad {
-            let mut det = vad_arc.lock().unwrap();
+            let mut det = crate::utils::lock_or_recover(&vad_arc, "vad");
             match det.push_frame(samples).unwrap_or(VadFrame::Speech(samples)) {
                 VadFrame::Speech(buf) => out_buf.extend_from_slice(buf),
                 VadFrame::Noise => {}
@@ -473,7 +473,7 @@ fn run_consumer(
                     recording = true;
                     visualizer.reset();
                     if let Some(v) = &vad {
-                        v.lock().unwrap().reset();
+                        crate::utils::lock_or_recover(&v, "vad").reset();
                     }
                 }
                 Cmd::Stop(reply_tx) => {
@@ -493,7 +493,7 @@ fn run_consumer(
                             }
                             Ok(AudioChunk::EndOfStream) => break,
                             Err(_) => {
-                                log::warn!("Timed out waiting for EndOfStream from audio callback");
+                                tracing::warn!("Timed out waiting for EndOfStream from audio callback");
                                 break;
                             }
                         }
