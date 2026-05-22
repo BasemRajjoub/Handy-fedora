@@ -25,7 +25,8 @@ pub(crate) fn level_from_u8(value: u8) -> Option<tracing::Level> {
 }
 
 pub(crate) fn setup_tracing(log_dir: std::path::PathBuf) {
-    tracing_log::LogTracer::init().ok();
+    // LogTracer::init() is called internally by .init() below (tracing-log feature).
+    // Calling it here first causes a double-init panic. Removed.
 
     let console_filter = EnvFilter::try_from_env("HANDY_LOG")
         .unwrap_or_else(|_| EnvFilter::new("info"));
